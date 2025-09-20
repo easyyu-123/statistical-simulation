@@ -3,6 +3,7 @@ n <- 1e6 #樣本數設為1000000
 u <- runif(n) # unif(0,1)
 theta_hat <- mean(((1-u) * u)/(1 - 2*u + 2*u^2) ^ 2) #樣本估計值
 cat("模擬結果為 :", theta_hat)
+
 set.seed(1)
 n <- 1e6
 u <- runif(n)  # U ~ Unif(0,1)
@@ -10,15 +11,24 @@ theta_hat <- mean( 2 * exp( -((1/u) - 1)^2 ) / (u^2) )
 cat("模擬結果為 :", theta_hat, "\n")
 x <- sqrt(pi) #查看根號pi的近似值
 x
+
 set.seed(1) #設定隨機種子使結果可重現
 n <- 1e6 #設定樣本數為1000000
 u <- runif(n) # unif(0,1)
 v <- runif(n) # unif(0,1)
 theta_hat <- mean(exp(-((1/u) + (1/v) - 2)) / (u^2 * v^2) * (u <= v))
 cat("模擬結果為 :", theta_hat, "\n")
-set.seed(1) #設定隨機種子使結果可重現
-n <- 1e6 #設定樣本數1000000
-u <- runif(n) # unif(0,1)
-y <- exp(u) # e^u
-cov_hat <- mean( (u-mean(u)) * (y-mean(y)) ) #樣本共變異數
-cat("模擬結果:", cov_hat)
+
+set.seed(1)
+n <- 1e6
+u <- runif(n)
+y <- exp(u)
+
+# population version (denominator n)
+cov_pop <- mean( (u - mean(u)) * (y - mean(y)) )
+
+# sample version (denominator n-1)
+cov_samp <- cov(u, y)
+
+cat("Population version:", cov_pop, "\n")
+cat("Sample version:", cov_samp, "\n")
