@@ -1,0 +1,304 @@
+# Excercise 5.16
+library(ggplot2)
+library(patchwork)
+set.seed(123)
+
+# define function
+F_target <- function(x) ifelse(x > 0, 1 - exp(-x) - exp(-2*x) + exp(-3*x), 0)
+f_target <- function(x) ifelse(x > 0,     exp(-x) + 2*exp(-2*x) - 3*exp(-3*x), 0)
+
+# algorithm a
+rF_comp <- function(n) {
+  x1 <- rexp(n, rate = 1)
+  x2 <- rexp(n, rate = 2)
+  pmax(x1, x2)
+}
+
+# Generate sample
+n  <- 2e5
+xA <- rF_comp(n)
+df1 <- data.frame(x = xA)
+
+
+# 左圖：Empirical density vs PDF
+p1A <- ggplot(df1, aes(x = x)) +
+  geom_histogram(aes(y = ..density..),
+                 bins = 100,
+                 fill = "skyblue",
+                 alpha = 0.6,
+                 color = "white") +
+  geom_density(linewidth = 1, color = "skyblue") +
+  stat_function(fun = f_target,
+                linewidth = 1,
+                linetype = 2,
+                color = "red") +
+  labs(title = "Empirical density vs Theoretical PDF",
+       x = "x",
+       y = "density") +
+  theme_minimal(base_size = 14)
+
+# 右圖：ECDF vs 理論 CDF
+p2A <- ggplot(df1, aes(x = x)) +
+  stat_ecdf(geom = "step",
+            linewidth = 1,
+            color = "blue") +
+  stat_function(fun = F_target,
+                linewidth = 1,
+                linetype = "dashed",
+                color = "red") +
+  labs(title = "ECDF vs Theoretical CDF",
+       x = "x",
+       y = "F(x)") +
+  theme_minimal(base_size = 14)
+
+# 拼圖
+p1A + p2A
+
+
+
+# algorithm b
+rF_AR <- function(n) {
+  cval <- 4/3
+  out <- numeric(n)
+  i <- 1; tot <- 0; acc <- 0
+  while (i <= n) {
+    x <- rexp(1, rate = 1)
+    u <- runif(1)
+    fx <- exp(-x) + 2*exp(-2*x) - 3*exp(-3*x)
+    gx <- exp(-x)
+    tot <- tot + 1
+    if (u <= fx / (cval * gx)) {
+      out[i] <- x
+      i <- i + 1
+      acc <- acc + 1
+    }
+  }
+  attr(out, "accept_rate") <- acc / tot
+  out
+}
+
+# Generate sample
+n  <- 2e5
+xB <- rF_AR(n)
+accB <- attr(xB, "accept_rate")
+dfB <- data.frame(x = xB)
+
+##  左圖：Empirical density vs PDF 
+p1B <- ggplot(dfB, aes(x = x)) +
+  geom_histogram(aes(y = ..density..), bins = 100,
+                 fill = "skyblue", alpha = 0.6, color = "white") +
+  geom_density(linewidth = 1, color = "skyblue") +
+  stat_function(fun = f_target, linewidth = 1, linetype = 2, color = "red") +
+  labs(
+    title = "Empirical density vs Theoretical PDF",
+    subtitle = sprintf("Empirical accept rate = %.3f (theory 0.750)", accB),
+    x = "x", y = "density"
+  ) +
+  theme_minimal(base_size = 14)
+
+## 右圖：ECDF vs 理論 CDF 
+p2B <- ggplot(dfB, aes(x = x)) +
+  stat_ecdf(geom = "step", linewidth = 1, color = "blue") +
+  stat_function(fun = F_target, linewidth = 1, linetype = "dashed", color = "red") +
+  labs(title = "ECDF vs Theoretical CDF ",
+       x = "x", y = "F(x)") +
+  theme_minimal(base_size = 14)
+
+## 拼圖
+p1B + p2B
+
+# Result
+cat("empirical accept rate:", accB)
+
+# Excercise 5.17
+library(ggplot2)
+library(patchwork)
+set.seed(123)
+
+# Define fuction
+# f(x) = 1/4 + 2 x^3 + 5/4 x^4, 0<x<1
+f_target <- function(x) ifelse(x > 0 & x < 1, 1/4 + 2*x^3 + 5/4*x^4, 0)
+# F(x) = x/4 + x^4/2 + x^5/4, 0<=x<=1
+F_target <- function(x) {
+  y <- ifelse(x <= 0, 0,
+              ifelse(x >= 1, 1, x/4 + x^4/2 + x^5/4))
+  y
+}
+
+# Algorithm A: Composition
+# f = (1/4)*U + (1/2)*Beta(4,1) + (1/4)*Beta(5,1)
+rF_comp_517 <- function(n) {
+  I <- sample.int(3, n, replace = TRUE, prob = c(1/4, 1/2, 1/4))
+  U <- runif(n)
+  x <- numeric(n)
+  x[I == 1] <- runif(sum(I == 1))            # Uniform(0,1)
+  x[I == 2] <- U[I == 2]^(1/4)               # Beta(4,1)
+  x[I == 3] <- U[I == 3]^(1/5)               # Beta(5,1)
+  x
+}
+
+# Algorithm B: Acceptance–Rejection 
+# g(x)=1(0<x<1), c = max f = f(1) = 3.5, acceptance = 1/c = 2/7 ~ 0.286
+rF_AR_517 <- function(n) {
+  cval <- 3.5
+  out <- numeric(n)
+  i <- 1; tot <- 0; acc <- 0
+  while (i <= n) {
+    x <- runif(1)            # proposal from g
+    u <- runif(1)
+    fx <- 1/4 + 2*x^3 + 5/4*x^4
+    tot <- tot + 1
+    if (u <= fx / cval) {
+      out[i] <- x
+      i <- i + 1
+      acc <- acc + 1
+    }
+  }
+  attr(out, "accept_rate") <- acc / tot
+  out
+}
+
+# Sampling 
+n  <- 2e5
+xA <- rF_comp_517(n)
+xB <- rF_AR_517(n)
+accB <- attr(xB, "accept_rate")
+
+#  Plots: Algorithm A 
+dfA <- data.frame(x = xA)
+
+p1A <- ggplot(dfA, aes(x = x)) +
+  geom_histogram(aes(y = ..density..), bins = 100,
+                 fill = "skyblue", alpha = 0.6, color = "white") +
+  geom_density(linewidth = 1, color = "skyblue") +
+  stat_function(fun = f_target, linewidth = 1, linetype = 2, color = "red") +
+  labs(title = "Empirical density vs Theoretical PDF",
+       x = "x", y = "density") +
+  theme_minimal(base_size = 14)
+
+p2A <- ggplot(dfA, aes(x = x)) +
+  stat_ecdf(geom = "step", linewidth = 1, color = "blue") +
+  stat_function(fun = F_target, linewidth = 1, linetype = "dashed", color = "red") +
+  labs(title = "ECDF vs Theoretical CDF",
+       x = "x", y = "F(x)") +
+  theme_minimal(base_size = 14)
+
+pA <- p1A + p2A
+print(pA)
+
+#  Plots: Algorithm B 
+dfB <- data.frame(x = xB)
+
+p1B <- ggplot(dfB, aes(x = x)) +
+  geom_histogram(aes(y = ..density..), bins = 100,
+                 fill = "skyblue", alpha = 0.6, color = "white") +
+  geom_density(linewidth = 1, color = "skyblue") +
+  stat_function(fun = f_target, linewidth = 1, linetype = 2, color = "red") +
+  labs(title = "Empirical density vs Theoretical PDF",
+       subtitle = sprintf("Empirical accept rate = %.3f (theory 0.286)", accB),
+       x = "x", y = "density") +
+  theme_minimal(base_size = 14)
+
+p2B <- ggplot(dfB, aes(x = x)) +
+  stat_ecdf(geom = "step", linewidth = 1, color = "blue") +
+  stat_function(fun = F_target, linewidth = 1, linetype = "dashed", color = "red") +
+  labs(title = "ECDF vs Theoretical CDF",
+       x = "x", y = "F(x)") +
+  theme_minimal(base_size = 14)
+
+pB <- p1B + p2B
+print(pB)
+# Result
+cat("empirical accept rate:", accB)
+
+# Part B
+# Part B
+#(2)
+library(ggplot2)
+set.seed(123)
+
+# define distribution
+p_bin <- function(k) dbinom(k, size = 10, prob = 0.5)  #binomial(10,k)
+q_pois <- function(k, lambda) dpois(k, lambda) #poisson(λ)
+
+#compute c(λ)
+c_const <- function(lambda){
+  ks <- 0:10
+  log_rk <- lambda - 10*log(2) + lfactorial(10) - lfactorial(10 - ks) - ks*log(lambda) #先轉成log計算以免數值溢位
+  exp(max(log_rk)) # 轉回exp 並且回傳最大值
+}
+
+# algorithm
+rbin10_AR <- function(n, lambda = 5){
+  cval <- c_const(lambda)             # domination constant
+  out <- integer(n); i <- 1
+  tot <- 0; acc <- 0                  # counters for acceptance rate
+  
+  while(i <= n){
+    x <- rpois(1, lambda); tot <- tot + 1
+    if(x <= 10){                      # target p(x)=0 for x>10 -> immediate reject
+      u <- runif(1)
+      if(u <= p_bin(x) / (cval * q_pois(x, lambda))){
+        out[i] <- x; i <- i + 1; acc <- acc + 1
+      }
+    }
+  }
+  list(sample = out, c = cval, accept_rate = acc / tot)
+}
+
+# Generate samples and compare
+n <- 1e6
+lambda = 5
+res <- rbin10_AR(n, lambda)
+
+emp <- table(factor(res$sample, levels = 0:10)) / n # compute empirical pmf
+theo <- dbinom(0:10, size = 10, prob = 0.5) #compute theoetical pmf
+
+comparison <- data.frame(
+  k = 0:10,
+  Empirical = as.numeric(emp),
+  Theoretical = theo,
+  AbsErr = abs(as.numeric(emp) - theo) #用絕對值看BiaS
+)
+print(comparison, row.names = FALSE)
+
+#output outcome
+cat(sprintf("c(lambda)=%.3f, expected acc=%.3f, empirical acc=%.3f\n",
+            res$c, 1/res$c, res$accept_rate))
+
+# plot
+df_plot <- data.frame(
+  k = 0:10,
+  Empirical = as.numeric(emp),
+  Theoretical = theo
+)
+
+ggplot(df_plot, aes(x = k)) +
+  geom_col(aes(y = Empirical), fill = "skyblue", alpha = 0.6, width = 0.7) +
+  geom_point(aes(y = Theoretical), color = "red", size = 3) +
+  geom_line(aes(y = Theoretical), color = "red", size = 1) +
+  labs(title = "Bin(10, 0.5): AR Simulation vs Theoretical",
+       y = "Probability",
+       x = "k") +
+  theme_minimal(base_size = 14)
+
+# (C)
+# Define c(λ)
+c_const <- function(lambda){
+  ks <- 0:10
+  log_rk <- lambda - 10*log(2) + lfactorial(10) - lfactorial(10 - ks) - ks*log(lambda)
+  exp(max(log_rk))
+}
+
+lambdas <- seq(0, 10, by = 0.1)  # generate λ = 0.1,0.2,...9.9,10
+c_vals  <- sapply(lambdas, c_const)
+acc     <- 1 / c_vals #acceptance_rate
+# Determine the optimal λ and output its neighboring results.
+ix <- which.min(c_vals)
+data.frame(lambda = lambdas[(ix-2):(ix+2)],
+           c = round(c_vals[(ix-2):(ix+2)], 4),
+           accept_rate = round(acc[(ix-2):(ix+2)], 4))
+
+
+
+
