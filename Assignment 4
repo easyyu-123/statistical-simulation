@@ -43,3 +43,35 @@ boot_var_S2 <- var(boot_S2)
 # Display results
 cat("Original sample variance S² =", round(S2, 4), "\n")
 cat("Bootstrap estimate of Var(S²) ≈", round(boot_var_S2, 4), "\n")
+
+# Part B
+# Problem 1
+# (ii)
+n <- length(x)
+xbar <- mean(x)
+meanlog <- mean(log(x))
+s <- log(xbar) - meanlog
+f <- function(a) log(a) - digamma(a) - s
+
+sol <- uniroot(f, c(0.1, 100))
+alpha_hat <- sol$root
+lambda_hat <- alpha_hat / xbar
+cat(sprintf("alpha_hat = %.6f, lambda_hat = %.6f\n", alpha_hat, lambda_hat))
+
+# (iii)
+# Fisher information at (alpha_hat, lambda_hat)
+I_mat <- matrix(c(
+  trigamma(alpha_hat),   -1 / lambda_hat,
+  -1 / lambda_hat,        alpha_hat / (lambda_hat^2)
+), nrow = 2, byrow = TRUE) * n
+
+# Asymptotic covariance of (alpha_hat, lambda_hat)
+V_asym <- solve(I_mat) / n
+
+var_alpha_hat  <- V_asym[1, 1]
+var_lambda_hat <- V_asym[2, 2]
+sd_alpha_hat   <- sqrt(var_alpha_hat)
+sd_lambda_hat  <- sqrt(var_lambda_hat)
+
+cat(sprintf("Var(alpha_hat)  ≈ %.6e;  SD ≈ %.6f\n", var_alpha_hat,  sd_alpha_hat))
+cat(sprintf("Var(lambda_hat) ≈ %.6e;  SD ≈ %.6f\n", var_lambda_hat, sd_lambda_hat))
