@@ -1,0 +1,22 @@
+# Excercise 5.19
+set.seed(42)   # ensure reproducibility
+x <- c(5, 4, 9, 6, 21, 17, 11, 20, 7, 10, 21, 15, 13, 16, 8)
+n <- length(x)
+B <- 10000    # number of bootstrap replicates
+
+# Original sample variance 
+S2 <- var(x)
+
+# Bootstrap resampling and computation of S*²
+boot_S2 <- numeric(B)
+for (b in 1:B) {
+  xb <- sample(x, n, replace = TRUE)
+  boot_S2[b] <- var(xb)
+}
+
+# Bootstrap estimate of Var(S²)
+boot_var_S2 <- var(boot_S2)
+
+# Display results
+cat("Original sample variance S² =", round(S2, 4), "\n")
+cat("Bootstrap estimate of Var(S²) ≈", round(boot_var_S2, 4), "\n")
