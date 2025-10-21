@@ -224,3 +224,25 @@ out <- data.frame(
 )
 
 print(out, row.names = FALSE)
+
+(ii)
+#--- Benchmarks from (i)
+sample_var_alpha <- var(alpha_hat_R, na.rm = TRUE)
+avg_asym_var     <- mean(var_asym_R,  na.rm = TRUE)
+avg_boot_var     <- mean(var_boot_R,  na.rm = TRUE)
+
+#--- Comparison table
+cmp <- data.frame(
+  Quantity = c("MC sample Var(α̂)", "Avg asymptotic Var", "Avg bootstrap Var"),
+  Value    = c(sample_var_alpha,     avg_asym_var,        avg_boot_var)
+)
+
+# 差異與相對誤差（以 MC sample Var 當基準）
+cmp$Diff_from_MC <- cmp$Value - sample_var_alpha
+cmp$Rel_Error    <- cmp$Diff_from_MC / sample_var_alpha
+
+print(cmp, row.names = FALSE, digits = 6)
+
+#--- 哪個更接近基準？（在兩個估計法之間選，排除第一列基準）
+which_closer <- c("Asymptotic","Bootstrap")[ which.min(abs(cmp$Diff_from_MC[2:3])) ]
+cat(sprintf("\nCloser to MC sample Var: %s\n", which_closer))
