@@ -124,3 +124,103 @@ tbl <- as.data.frame(tbl)
 tbl$B <- as.integer(tbl$B)
 
 print(tbl, row.names = FALSE, digits = 6)
+
+# Problem 2
+# (i)set.seed(42)
+
+# MLE for Gamma(α, λ)
+gamma_mle <- function(x) {
+  # Solve log(alpha) - digamma(alpha) = log(mean(x)) - mean(log(x))
+  n <- length(x)
+  xbar <- mean(x)
+  s <- log(xbar) - mean(log(x))
+  f <- function(a) log(a) - digamma(a) - s
+  
+  # Error handling
+  a_hat <- tryCatch(uniroot(f, c(1e-4, 1e4), tol = 1e-10)$root,
+                    error = function(e) NA_real_)
+  if (!is.finite(a_hat)) return(c(NA, NA))
+  l_hat <- a_hat / xbar
+  c(a_hat, l_hat)
+}
+
+#  Fisher information (sample size n) and Var(α̂)
+asymp_var_alpha <- function(alpha, lambda, n) {
+  I_n <- matrix(c(trigamma(alpha), -1/lambda,
+                  -1/lambda,        alpha/lambda^2),
+                nrow = 2, byrow = TRUE) * n
+  V <- solve(I_n)   
+  V[1, 1]           # Var(α̂)
+}
+
+
+#  Bootstrap
+boot_var_alpha <- function(x, B = 1000) {
+  n <- length(x)
+  a_star <- numeric(B)
+  for (b in 1:B) {
+    xb <- sample(x, n, replace = TRUE)
+    a_star[b] <- gamma_mle(xb)[1]
+  }
+  var(a_star)   # bootstrap estimate of Var(α̂)
+}
+
+# 4) Monte Carlo main loop
+
+run_once <- function(n = 100, B = 1000, alpha_true = 3, lambda_true = 1.5) {
+  x <- rgamma(n, shape = alpha_true, rate = lambda_true)
+  mle <- gamma_mle(x)
+  a_hat <- mle[1]; l_hat <- mle[2]
+  
+  if (!is.finite(a_hat) || !is.finite(l_hat)) {
+    return(c(alpha_hat = NA_real_, var_asym = NA_real_, var_boot = NA_real_))
+  }
+  
+  sig2_asym <- asymp_var_alpha(a_hat, l_hat, n)
+  sig2_boot <- boot_var_alpha(x, B)
+  c(alpha_hat = a_hat, var_asym = sig2_asym, var_boot = sig2_boot)
+}
+
+# Parameters
+n <- 100
+B <- 1000
+R <- 1000
+alpha_true <- 3
+lambda_true <- 1.5
+
+# Storage
+alpha_hat_R <- numeric(R)
+var_asym_R  <- numeric(R)
+var_boot_R  <- numeric(R)
+
+# Progress 
+pb <- txtProgressBar(min = 0, max = R, style = 3)
+
+for (r in 1:R) {
+  res <- run_once(n, B, alpha_true, lambda_true)
+  alpha_hat_R[r] <- res["alpha_hat"]
+  var_asym_R[r]  <- res["var_asym"]
+  var_boot_R[r]  <- res["var_boot"]
+  if (r %% 10 == 0) setTxtProgressBar(pb, r)
+}
+close(pb)
+
+#  Summaries required by the assignment
+# (A) Sample variance of α̂1,…,α̂R
+sample_var_alpha <- var(alpha_hat_R)
+
+# (B) Average of asymptotic variance estimates
+avg_asym_var <- mean(var_asym_R)
+
+# (C) Average of bootstrap variance estimates
+avg_boot_var <- mean(var_boot_R)
+
+# Tidy table
+out <- data.frame(
+  Quantity = c("Sample Var of alpha_hat",
+               "Average Asymptotic Var estimate",
+               "Average Bootstrap Var estimate"),
+  Value = c(sample_var_alpha, avg_asym_var, avg_boot_var)
+)
+
+print(out, row.names = FALSE)
