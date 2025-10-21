@@ -67,7 +67,7 @@ I_mat <- matrix(c(
 ), nrow = 2, byrow = TRUE) * n
 
 # Asymptotic covariance of (alpha_hat, lambda_hat)
-V_asym <- solve(I_mat) / n
+V_asym <- solve(I_mat) 
 
 var_alpha_hat  <- V_asym[1, 1]
 var_lambda_hat <- V_asym[2, 2]
@@ -126,7 +126,8 @@ tbl$B <- as.integer(tbl$B)
 print(tbl, row.names = FALSE, digits = 6)
 
 # Problem 2
-# (i)set.seed(42)
+# (i)
+set.seed(42)
 
 # MLE for Gamma(α, λ)
 gamma_mle <- function(x) {
@@ -165,7 +166,7 @@ boot_var_alpha <- function(x, B = 1000) {
   var(a_star)   # bootstrap estimate of Var(α̂)
 }
 
-# 4) Monte Carlo main loop
+# Monte Carlo main loop
 
 run_once <- function(n = 100, B = 1000, alpha_true = 3, lambda_true = 1.5) {
   x <- rgamma(n, shape = alpha_true, rate = lambda_true)
@@ -226,6 +227,21 @@ out <- data.frame(
 print(out, row.names = FALSE)
 
 # (ii)
+set.seed(42)
+gamma_mle <- function(x) {
+  # Solve log(alpha) - digamma(alpha) = log(mean(x)) - mean(log(x))
+  n <- length(x)
+  xbar <- mean(x)
+  s <- log(xbar) - mean(log(x))
+  f <- function(a) log(a) - digamma(a) - s
+  
+  # Error handling
+  a_hat <- tryCatch(uniroot(f, c(1e-4, 1e4), tol = 1e-10)$root,
+                    error = function(e) NA_real_)
+  if (!is.finite(a_hat)) return(c(NA, NA))
+  l_hat <- a_hat / xbar
+  c(a_hat, l_hat)
+}
 # from (i)
 sample_var_alpha <- var(alpha_hat_R, na.rm = TRUE)
 avg_asym_var     <- mean(var_asym_R,  na.rm = TRUE)
@@ -247,3 +263,100 @@ print(cmp, row.names = FALSE, digits = 6)
 which_closer <- c("Asymptotic","Bootstrap")[ which.min(abs(cmp$Diff_from_MC[2:3])) ]
 cat(sprintf("\nCloser to MC sample Var: %s\n", which_closer))
 
+# (iii)
+set.seed(123)
+gamma_mle <- function(x) {
+  # Solve log(alpha) - digamma(alpha) = log(mean(x)) - mean(log(x))
+  n <- length(x)
+  xbar <- mean(x)
+  s <- log(xbar) - mean(log(x))
+  f <- function(a) log(a) - digamma(a) - s
+  
+  # Error handling
+  a_hat <- tryCatch(uniroot(f, c(1e-4, 1e4), tol = 1e-10)$root,
+                    error = function(e) NA_real_)
+  if (!is.finite(a_hat)) return(c(NA, NA))
+  l_hat <- a_hat / xbar
+  c(a_hat, l_hat)
+}
+# Asymptotic variance: return Var(λ̂)
+asymp_var_lambda <- function(alpha, lambda, n) {
+  I_n <- matrix(c(trigamma(alpha), -1/lambda,
+                  -1/lambda,        alpha/lambda^2),
+                nrow = 2, byrow = TRUE) * n
+  V <- solve(I_n)
+  V[2, 2]  # Var(λ̂)
+}
+
+# Bootstrap: return the bootstrap estimate of Var(λ̂)
+boot_var_lambda <- function(x, B = 1000) {
+  n <- length(x)
+  l_star <- numeric(B)
+  for (b in 1:B) {
+    xb <- sample(x, n, replace = TRUE)
+    l_star[b] <- gamma_mle(xb)[2]
+  }
+  var(l_star, na.rm = TRUE)
+}
+
+# Single simulation run: return {λ̂, asymptotic Var(λ̂), bootstrap Var(λ̂)}
+run_once_lambda <- function(n = 100, B = 1000, alpha_true = 3, lambda_true = 1.5) {
+  x <- rgamma(n, shape = alpha_true, rate = lambda_true)
+  mle <- gamma_mle(x)
+  a_hat <- mle[1]; l_hat <- mle[2]
+  
+  if (!is.finite(a_hat) || !is.finite(l_hat)) {
+    return(c(lambda_hat = NA_real_, var_asym = NA_real_, var_boot = NA_real_))
+  }
+  
+  sig2_asym <- asymp_var_lambda(a_hat, l_hat, n)
+  sig2_boot <- boot_var_lambda(x, B)
+  c(lambda_hat = l_hat, var_asym = sig2_asym, var_boot = sig2_boot)
+}
+
+# Parameters 
+n <- 100; B <- 1000; R <- 1000
+alpha_true <- 3; lambda_true <- 1.5
+
+# Monte Carlo main loop (for λ)
+lambda_hat_R <- numeric(R)
+var_asym_l_R <- numeric(R)
+var_boot_l_R <- numeric(R)
+
+pb <- txtProgressBar(min = 0, max = R, style = 3)
+for (r in 1:R) {
+  resL <- run_once_lambda(n, B, alpha_true, lambda_true)
+  lambda_hat_R[r] <- resL["lambda_hat"]
+  var_asym_l_R[r] <- resL["var_asym"]
+  var_boot_l_R[r] <- resL["var_boot"]
+  if (r %% 10 == 0) setTxtProgressBar(pb, r)
+}
+close(pb)
+
+# Three quantities for λ
+sample_var_lambda <- var(lambda_hat_R, na.rm = TRUE)
+avg_asym_var_l    <- mean(var_asym_l_R, na.rm = TRUE)
+avg_boot_var_l    <- mean(var_boot_l_R, na.rm = TRUE)
+
+out_lambda <- data.frame(
+  Quantity = c("Sample Var of lambda_hat",
+               "Average Asymptotic Var estimate",
+               "Average Bootstrap Var estimate"),
+  Value = c(sample_var_lambda, avg_asym_var_l, avg_boot_var_l)
+)
+print(out_lambda, row.names = FALSE)
+
+# Compare which one is closer to the MC sample variance
+cmp_lambda <- data.frame(
+  Quantity = c("MC sample Var(λ̂)", "Avg asymptotic Var", "Avg bootstrap Var"),
+  Value    = c(sample_var_lambda,   avg_asym_var_l,       avg_boot_var_l)
+)
+cmp_lambda$Diff_from_MC <- cmp_lambda$Value - sample_var_lambda
+cmp_lambda$Rel_Error    <- cmp_lambda$Diff_from_MC / sample_var_lambda
+
+print(cmp_lambda, row.names = FALSE, digits = 6)
+
+which_closer_lambda <- c("Asymptotic","Bootstrap")[
+  which.min(abs(cmp_lambda$Diff_from_MC[2:3]))
+]
+cat(sprintf("\nCloser to MC sample Var for λ: %s\n", which_closer_lambda))
