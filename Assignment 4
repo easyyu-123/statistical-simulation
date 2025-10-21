@@ -47,6 +47,7 @@ cat("Bootstrap estimate of Var(S²) ≈", round(boot_var_S2, 4), "\n")
 # Part B
 # Problem 1
 # (ii)
+load("Assignment 4.RData")
 n <- length(x)
 xbar <- mean(x)
 meanlog <- mean(log(x))
@@ -75,3 +76,86 @@ sd_lambda_hat  <- sqrt(var_lambda_hat)
 
 cat(sprintf("Var(alpha_hat)  ≈ %.6e;  SD ≈ %.6f\n", var_alpha_hat,  sd_alpha_hat))
 cat(sprintf("Var(lambda_hat) ≈ %.6e;  SD ≈ %.6f\n", var_lambda_hat, sd_lambda_hat))
+
+# (iv)
+## Setup
+load("Assignment 4.RData")
+stopifnot(exists("x"), all(x > 0))
+set.seed(42)
+
+n       <- length(x)
+xbar    <- mean(x)
+meanlog <- mean(log(x))
+s       <- log(xbar) - meanlog
+
+## (ii) MLE solver 
+alpha_mle <- (function(){
+  f <- function(a) log(a) - digamma(a) - s
+  a0 <- max((xbar^2)/var(x), 1e-8)  # MoM start
+  L <- max(a0/16, 1e-8); U <- a0*16
+  for (k in 1:30) {
+    if (is.finite(f(L)) && is.finite(f(U)) && f(L)*f(U) < 0) break
+    L <- L/2; U <- U*2
+  }
+  uniroot(f, c(L, U), tol = 1e-12)$root
+})()
+lambda_mle <- alpha_mle / xbar
+
+cat(sprintf("MLE -> alpha_hat = %.8f, lambda_hat = %.8f\n", alpha_mle, lambda_mle))
+
+## (iii)  Asymptotic variances via Fisher Information 
+I_mat <- matrix(c(
+  trigamma(alpha_mle),   -1 / lambda_mle,
+  -1 / lambda_mle,        alpha_mle / (lambda_mle^2)
+), nrow = 2, byrow = TRUE) * n
+
+V_asym <- solve(I_mat) / n
+var_alpha_asym  <- V_asym[1,1]
+var_lambda_asym <- V_asym[2,2]
+
+cat(sprintf("Asymptotic Var(alpha_hat)  ≈ %.6e\n", var_alpha_asym))
+cat(sprintf("Asymptotic Var(lambda_hat) ≈ %.6e\n", var_lambda_asym))
+
+## (iv) 
+# 一次 bootstrap：重抽樣 → 解 α̂*, λ̂*
+boot_once <- function(x){
+  xb <- sample(x, length(x), replace = TRUE)
+  n  <- length(xb)
+  xbar_b    <- mean(xb)
+  meanlog_b <- mean(log(xb))
+  s_b       <- log(xbar_b) - meanlog_b
+  f_b <- function(a) log(a) - digamma(a) - s_b
+  
+  # robust bracket
+  a0 <- max((xbar_b^2)/var(xb), 1e-8)
+  L <- max(a0/16, 1e-8); U <- a0*16
+  for (k in 1:30) {
+    if (is.finite(f_b(L)) && is.finite(f_b(U)) && f_b(L)*f_b(U) < 0) break
+    L <- L/2; U <- U*2
+  }
+  a_hat <- tryCatch(uniroot(f_b, c(L, U), tol = 1e-10)$root,
+                    error = function(e) NA_real_)
+  if (!is.finite(a_hat)) return(c(NA_real_, NA_real_))
+  l_hat <- a_hat / xbar_b
+  c(a_hat, l_hat)
+}
+
+B_list <- c(50, 100, 200, 400, 800, 1600)
+
+boot_results <- lapply(B_list, function(B){
+  ests <- replicate(B, boot_once(x))
+  a_vec <- ests[1, ]
+  l_vec <- ests[2, ]
+  c(B = B,
+    Var_alpha_boot  = var(a_vec),
+    Var_lambda_boot = var(l_vec),
+    Var_alpha_asym  = var_alpha_asym,
+    Var_lambda_asym = var_lambda_asym)
+})
+
+tbl <- do.call(rbind, boot_results)
+tbl <- as.data.frame(tbl)
+# 排序與格式
+tbl$B <- as.integer(tbl$B)
+
+print(tbl, row.names = FALSE, digits = 6)
