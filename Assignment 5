@@ -1,5 +1,4 @@
 set.seed(42)
-set.seed(42)
 # 參數
 theta_true <- 3
 n <- 50
