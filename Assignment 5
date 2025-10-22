@@ -1,0 +1,48 @@
+set.seed(42)
+
+# 設定參數
+theta_true <- 3
+n <- 50
+B <- 1000
+R <- 1000
+
+# 從 Beta 生成資料
+rBeta_t1 <- function(n, theta){
+  runif(n)^(1/theta)
+}
+
+# MLE
+theta_mle <- function(x){
+  # 防呆
+  x <- pmax(x, .Machine$double.eps)
+  -1/mean(log(x))
+}
+
+# 跑一次模擬回傳五個CI
+one_run <- function(n, theta_true, B){
+  # 生成資料
+  x <- rBeta_t1(n, theta_true)
+  
+  # 對於原始資料做mle
+  th <- theta_mle(x)
+  
+  # Asymptotic CI
+  se_asy <- th / sqrt(n)
+  CI_asy <- as.integer(th - 1.96*se_asy < theta_true && theta_true < th + 1.96*se_asy)
+  
+  # Nonparametric bootstrap
+  th_non <- replicate(B, theta_mle(sample(x, n, replace = TRUE)))
+  se_non <- sd(th_non)
+  CI_Boot1 <- as.integer(th_non - 1.96*se_asy < theta_true && theta_true < th_non + 1.96*se_non)
+  ord_non <- sort(th_non)
+  idxL <- ceiling(0.025 * B); idxU <- floor(0.975 * B)
+  CI_Boot2 <- as.integer(ord_non[idxL] < theta_true && theta_true < ord_non[idxU])
+  
+  # parametric bootstrap
+}
+
+
+
+
+
+
