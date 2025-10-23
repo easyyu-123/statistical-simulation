@@ -1,4 +1,4 @@
-set.seed(42)
+set.seed(123)
 # 參數
 theta_true <- 3
 n <- 50
@@ -23,18 +23,17 @@ one_run <- function(n, theta_true, B){
   
   # Asymptotic 
   se_asy <- th / sqrt(n)
-  CI_asy <- as.integer(abs(th - theta_true) <= 1.96 * se_asy)
+  CI_asy <- as.integer(th - 1.96*se_asy < theta_true && theta_true < th + 1.96*se_asy)
   
   # Nonparametric bootstrap
   th_non <- replicate(B, theta_mle(sample(x, n, replace = TRUE)))
   se_non <- sd(th_non)
   # Normal
-  CI_Boot1 <- as.integer(abs(th - theta_true) <= 1.96 * se_non)
+  CI_Boot1 <- as.integer(th - 1.96*se_non < theta_true && theta_true < th + 1.96*se_non)
   # Percentile
   ord_non <- sort(th_non)
-  idxL <- max(1, floor(B * 0.025))
-  idxU <- min(B, ceiling(B * 0.975))
-  CI_Boot2 <- as.integer(ord_non[idxL] <= theta_true && theta_true <= ord_non[idxU])
+  idxL <- ceiling(0.025 * B); idxU <- floor(0.975 * B)
+  CI_Boot2 <- as.integer(ord_non[idxL] < theta_true && theta_true < ord_non[idxU])
   
   # Parametric bootstrap
   th_par <- replicate(B, {
@@ -43,10 +42,10 @@ one_run <- function(n, theta_true, B){
   })
   se_par <- sd(th_par)
   # Normal
-  CI_Boot3 <- as.integer(abs(th - theta_true) <= 1.96 * se_par)
+  CI_Boot3 <- as.integer(th - 1.96*se_par < theta_true && theta_true < th + 1.96*se_par)
   # Percentile
   ord_par <- sort(th_par)
-  CI_Boot4 <- as.integer(ord_par[idxL] <= theta_true && theta_true <= ord_par[idxU])
+  CI_Boot4 <- as.integer(ord_par[idxL] < theta_true && theta_true < ord_par[idxU])
   
   c(Asymptotic = CI_asy,
     `Nonparam Bootstrap (Normal)`     = CI_Boot1,
@@ -77,4 +76,3 @@ cp_tbl <- data.frame(
   CP     = as.numeric(CP)
 )
 print(cp_tbl, row.names = FALSE, digits = 4)
-
