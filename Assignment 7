@@ -1,0 +1,209 @@
+# problem1
+# 設定參數
+set.seed(123)
+N <- 50
+p <- 0.5
+n <- 1e5
+R <- 400
+a_values <- c(35, 40, 45, 48)
+
+results <- data.frame()
+
+#模擬
+for(a in a_values){
+  
+  # 計算理論值
+  true_theta <- 1 - pbinom(a, size = N, prob = p)
+  
+  # 計算最佳 t
+  pt <- a / N
+  t_opt <- log((pt * (1 - p)) / (p * (1 - pt)))
+  
+  # 計算 MGF 
+  M_S_t <- ((1 - p) + p * exp(t_opt))^N
+  
+  raw_estimates <- numeric(R)
+  is_estimates <- numeric(R)
+  
+  # 模擬 R=400 次
+  for(r in 1:R){
+    # RAW Estimator 
+    S_raw <- rbinom(n, size = N, prob = p)
+    
+    # 算比例
+    raw_estimates[r] <- mean(S_raw > a)
+    
+    #  IS Estimator
+    S_tilde <- rbinom(n, size = N, prob = pt)
+    weights <- M_S_t * exp(-t_opt * S_tilde)
+    
+    # 算比例 
+    is_estimates[r] <- mean((S_tilde > a) * weights)
+  }
+  
+  # 儲存結果
+  results <- rbind(results, data.frame(
+    a = a,
+    t_opt = t_opt,
+    Theoretical = true_theta,
+    Raw_Mean = mean(raw_estimates),
+    IS_Mean = mean(is_estimates),
+    Raw_Var = var(raw_estimates),   
+    IS_Var = var(is_estimates)
+  ))
+}
+
+#  輸出結果
+for (i in 1:nrow(results)) {
+  row <- results[i, ]
+  cat(paste0(" Case: a = ", row$a, "\n"))
+  # (i) Select a proper t
+  cat(sprintf("     Optimal t = %.4e\n", row$t_opt))
+  cat("\n")
+  
+  # (ii) Compare average estimates
+  cat("(ii) Compare average estimates:\n")
+  cat(sprintf("     Theoretical Value : %.4e\n", row$Theoretical))
+  cat(sprintf("     Raw Estimator Mean: %.4e\n", row$Raw_Mean))
+  cat(sprintf("     IS Estimator Mean : %.4e\n", row$IS_Mean))
+
+  diff_raw <- abs(row$Raw_Mean - row$Theoretical)
+  diff_is  <- abs(row$IS_Mean - row$Theoretical)
+  cat(sprintf("     [Error] Raw vs True: %.4e\n", diff_raw))
+  cat(sprintf("     [Error] IS  vs True: %.4e\n", diff_is))
+  # 判斷 Raw 是否失敗
+  if(row$Raw_Mean == 0 && row$Theoretical > 0) {
+    cat(" Raw estimator failed to capture the rare event (Mean is 0).\n")
+  } else {
+    diff_raw <- abs(row$Raw_Mean - row$Theoretical)
+    diff_is  <- abs(row$IS_Mean - row$Theoretical)
+    if(diff_is < diff_raw) {
+      cat(" IS estimator is closer to the true value.\n")
+    }
+  }
+  cat("\n")
+  
+  # (iii) Compare variances
+  cat("(iii) Compare variances:\n")
+  cat(sprintf("     Raw Estimator Var : %.4e\n", row$Raw_Var))
+  cat(sprintf("     IS Estimator Var  : %.4e\n", row$IS_Var))
+  
+  # 計算變異數縮減倍數
+  if (row$IS_Var > 0 && row$Raw_Var > 0) {
+    ratio <- row$Raw_Var / row$IS_Var
+    cat(sprintf("     [Efficiency] IS reduced variance by %.2f times.\n", ratio))
+  } else if (row$Raw_Var == 0 && row$Theoretical > 0) {
+    cat("     [Efficiency] Raw variance is 0 because no events occurred (Invalid estimation).\n")
+  }
+  
+  cat("\n\n")
+}
+
+#problem2
+# 設定參數
+set.seed(123)
+N <- 50
+n <- 1e5
+R <- 400
+a_values <- c(35, 40, 45, 48)
+results_p2 <- data.frame()
+# 定義
+p_k <- 0.05 + 0.9 * ((0:(N - 1)) / (N - 1))   
+
+# 函數 
+p_tilt <- function(t, p_vec) {
+  (p_vec * exp(t)) / (1 - p_vec + p_vec * exp(t))
+}
+
+# 給定 t，計算在 tilted measure 底下 E_t[S] = sum p_k^(t)
+E_t_S <- function(t, p_vec) {
+  sum(p_tilt(t, p_vec))
+}
+
+# 給定 a，透過 uniroot 找到讓 E_t[S] ≈ a 的 t
+find_t_for_a <- function(a, p_vec) {
+  uniroot(function(t) E_t_S(t, p_vec) - a,
+          interval = c(-10, 10))$root
+}
+
+# 模擬：針對各個 a 做 Raw 與 IS 的比較
+for (a in a_values) {
+  # (i) best_t
+  t_opt <- find_t_for_a(a, p_k)
+  
+  # mgf M_S(t)
+  M_S_t <- prod(1 - p_k + p_k * exp(t_opt))
+  
+  # tilted 的 p_k^(t)
+  p_k_tilt <- p_tilt(t_opt, p_k)
+  
+  prob_raw_vec  <- rep(p_k,      each = n)   
+  prob_tilt_vec <- rep(p_k_tilt, each = n)   
+  
+  # 儲存 R 次 run 的估計值
+  raw_estimates <- numeric(R)
+  is_estimates  <- numeric(R)
+  
+# 模擬 R = 400 次 
+  for (r in 1:R) {
+    
+    ##  Raw estimator
+    S_raw <- numeric(n)  # 初始化 S
+    for (k in 1:N) {
+      # 依序把 X_1 ... X_50 加進去
+      S_raw <- S_raw + rbinom(n, size = 1, prob = p_k[k])
+    }
+    raw_estimates[r] <- mean(S_raw > a)
+    
+    ## IS estimator 
+    S_tilt <- numeric(n) # 初始化 S_tilde
+    for (k in 1:N) {
+      # 依序把傾斜後的 X_1 ... X_50 加進去
+      S_tilt <- S_tilt + rbinom(n, size = 1, prob = p_k_tilt[k])
+    }
+    
+    # 計算權重
+    weights <- M_S_t * exp(-t_opt * S_tilt)
+    
+    # IS 估計量
+    is_estimates[r] <- mean((S_tilt > a) * weights)
+  }
+  
+  # 把結果整理進 results_p2
+  results_p2 <- rbind(results_p2, data.frame(
+    a       = a,
+    t_opt   = t_opt,
+    Raw_Mean = mean(raw_estimates),
+    IS_Mean  = mean(is_estimates),
+    Raw_Var  = var(raw_estimates),
+    IS_Var   = var(is_estimates)
+  ))
+}
+
+#輸出整理好的報告 
+for (i in 1:nrow(results_p2)) {
+  row <- results_p2[i, ]
+  
+  cat(sprintf("Case: a = %d\n", row$a))
+  cat(sprintf("  (i)  Optimal t = %.4e\n\n", row$t_opt))
+  
+  cat("  (ii) Compare average estimates:\n")
+  cat(sprintf("       Raw Estimator Mean: %.6e\n", row$Raw_Mean))
+  cat(sprintf("       IS  Estimator Mean: %.6e\n", row$IS_Mean))
+  cat("\n")
+  raw_vs_is_error <- abs(row$Raw_Mean - row$IS_Mean)
+cat(sprintf("     [Error] Raw vs IS: %.4e\n", raw_vs_is_error))
+
+  cat("  (iii) Compare variances:\n")
+  cat(sprintf("       Raw Estimator Var : %.6e\n", row$Raw_Var))
+  cat(sprintf("       IS  Estimator Var : %.6e\n", row$IS_Var))
+  
+  if (row$IS_Var > 0 && row$Raw_Var > 0) {
+    ratio <- row$Raw_Var / row$IS_Var
+    cat(sprintf("       [Efficiency] IS reduced variance by %.2f times.\n", ratio))
+  }
+  
+  cat("\n\n")
+}
+results_p2
+
