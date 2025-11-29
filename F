@@ -1,0 +1,238 @@
+#Q2
+# ==============================================================================
+# Part 1: 載入套件與定義核心函數 (無 copula 套件版)
+# ==============================================================================
+library(numDeriv) # 只保留這個計算 Hessian 用
+
+# ------------------------------------------------------------------------------
+# [新增] 手寫 Frank Copula 生成函數 (取代 library(copula))
+# 原理：使用條件分布法 (Conditional Distribution Method)
+# v = C_u^(-1)(w), 其中 u, w ~ U(0,1)
+# ------------------------------------------------------------------------------
+rFrank <- function(n, theta) {
+  u <- runif(n)
+  w <- runif(n)
+  
+  # 避免 theta 為 0 的情況 (雖然設定為 2 或 8 不會遇到)
+  if (abs(theta) < 1e-6) {
+    return(cbind(u, w)) # 趨近獨立
+  }
+  
+  # Frank Copula 的條件反函數公式推導：
+  # v = -1/theta * log( 1 + (w * (1 - exp(-theta))) / (w * (exp(-theta * u) - 1) - exp(-theta * u)) )
+  
+  term1 <- 1 - exp(-theta)
+  term2 <- exp(-theta * u) - 1
+  
+  # 分子與分母
+  num <- w * term1
+  den <- w * term2 - exp(-theta * u)
+  
+  v <- -1/theta * log(1 + num / den)
+  
+  return(cbind(u, v))
+}
+
+# ------------------------------------------------------------------------------
+# 1. 定義負對數似然函數 (不變)
+# ------------------------------------------------------------------------------
+nll_func <- function(params, x, y) {
+  theta <- params[1]
+  mu    <- params[2]
+  sigma <- exp(params[3])
+  alpha <- exp(params[4])
+  beta  <- exp(params[5])
+  
+  eps <- 1e-10
+  
+  # Marginal X
+  z <- (x - mu) / sigma
+  log_fx <- -log(sigma) - z - 2 * log(1 + exp(-z))
+  u <- 1 / (1 + exp(-z))
+  
+  # Marginal Y
+  term_y <- (y / beta)
+  log_fy <- log(alpha) - log(beta) + (alpha - 1) * log(term_y + eps) - (term_y^alpha)
+  v <- 1 - exp(-(term_y^alpha))
+  
+  u <- pmax(pmin(u, 1 - eps), eps)
+  v <- pmax(pmin(v, 1 - eps), eps)
+  
+  # Frank Copula Density
+  numer <- theta * (1 - exp(-theta)) * exp(-theta * (u + v))
+  denom_inside <- (exp(-theta) - 1) + (exp(-theta * u) - 1) * (exp(-theta * v) - 1)
+  denom <- denom_inside^2
+  
+  copula_density <- numer / (denom + eps)
+  log_copula <- log(copula_density)
+  
+  total_log_lik <- sum(log_copula + log_fx + log_fy)
+  return(-total_log_lik)
+}
+
+# ------------------------------------------------------------------------------
+# 2. 定義無參數轉換的 Likelihood (不變)
+# ------------------------------------------------------------------------------
+nll_func_original <- function(params, x, y) {
+  theta <- params[1]; mu <- params[2]; sigma <- params[3]
+  alpha <- params[4]; beta  <- params[5]
+  
+  # 如果出現不合理的參數（Hessian 擾動到負數），直接回傳超大值
+  if (sigma <= 0 || alpha <= 0 || beta <= 0) {
+    return(1e10)
+  }
+  
+  nll_func(c(theta, mu, log(sigma), log(alpha), log(beta)), x, y)
+}
+
+
+# ==============================================================================
+# Part 2 & 3: 自動化執行所有設定 (Setting A, B, C, D)
+# ==============================================================================
+
+# 1. 定義 4 種實驗情境 (根據之前的推薦)
+scenarios <- data.frame(
+  ID    = c("A", "B", "C", "D"),
+  Desc  = c("Weak(2) + Set1", "Weak(2) + Set2", "Strong(8) + Set1", "Strong(8) + Set2"),
+  Theta = c(2,   2,   8,   8),
+  Mu    = c(0,   5,   0,   5),
+  Sigma = c(1,   2,   1,   2),
+  Alpha = c(1.5, 3.0, 1.5, 3.0),
+  Beta  = c(1,   2,   1,   2)
+)
+
+# 2. 設定模擬次數
+sample_sizes <- c(100, 200, 400, 800)
+n_sim  <- 400     # 正式跑設為 400
+n_boot <- 400     # 正式跑設為 400
+
+# 準備一個大列表存所有結果
+all_results <- list()
+
+# --- 最外層迴圈：遍歷 4 種設定 ---
+for (k in 1:nrow(scenarios)) {
+  
+  # 提取當前設定的參數
+  setting_id <- scenarios$ID[k]
+  desc       <- scenarios$Desc[k]
+  
+  true_theta <- scenarios$Theta[k]
+  true_mu    <- scenarios$Mu[k]
+  true_sigma <- scenarios$Sigma[k]
+  true_alpha <- scenarios$Alpha[k]
+  true_beta  <- scenarios$Beta[k]
+  
+  true_params <- c(true_theta, true_mu, true_sigma, true_alpha, true_beta)
+  
+  cat(sprintf("\n\n################################################################\n"))
+  cat(sprintf(" Running Setting %s: %s\n", setting_id, desc))
+  cat(sprintf(" Params: Theta=%.1f, Mu=%.1f, Sigma=%.1f, Alpha=%.1f, Beta=%.1f\n", 
+              true_theta, true_mu, true_sigma, true_alpha, true_beta))
+  cat(sprintf("################################################################\n"))
+  
+  results_list <- list() # 存這個 Setting 下不同 n 的結果
+  
+  # --- 中層迴圈：遍歷樣本數 n ---
+  for (n in sample_sizes) {
+    cat(sprintf("\n  Processing Sample Size n = %d ...\n", n))
+    pb <- txtProgressBar(min = 0, max = n_sim, style = 3)
+    
+    mle_matrix     <- matrix(NA, nrow = n_sim, ncol = 5)
+    coverage_asymp <- matrix(NA, nrow = n_sim, ncol = 5)
+    coverage_boot  <- matrix(NA, nrow = n_sim, ncol = 5)
+    
+    # --- 內層迴圈：模擬次數 ---
+    for (i in 1:n_sim) {
+      
+      # Step A: 生成數據
+      uv_data <- rFrank(n, true_theta)
+      u <- uv_data[, 1]
+      v <- uv_data[, 2]
+      x_sim <- true_mu + true_sigma * log(u / (1 - u))
+      y_sim <- true_beta * (-log(1 - v))^(1 / true_alpha)
+      
+      # Step B: MLE
+      # 初始值根據當前真值稍微調整，或統一用通用初始值
+      init_params <- c(true_theta * 0.8, true_mu, log(true_sigma), log(true_alpha), log(true_beta)) 
+      
+      fit <- tryCatch({
+        optim(par = init_params, fn = nll_func, x = x_sim, y = y_sim, 
+              method = "BFGS", hessian = FALSE)
+      }, error = function(e) return(NULL))
+      
+      if (is.null(fit)) {
+        mle_matrix[i, ] <- NA; coverage_asymp[i,] <- NA; coverage_boot[i,] <- NA
+        setTxtProgressBar(pb, i)
+        next 
+      }
+      
+      est_params <- fit$par
+      est_params_orig <- c(est_params[1], est_params[2], 
+                           exp(est_params[3]), exp(est_params[4]), exp(est_params[5]))
+      mle_matrix[i, ] <- est_params_orig
+      
+      # Step C: Hessian CI
+      hess_wrapper <- function(p) { nll_func_original(p, x_sim, y_sim) }
+      hess <- hessian(func = hess_wrapper, x = est_params_orig)
+      
+      se_asymp <- tryCatch({ sqrt(diag(solve(hess))) }, error = function(e) rep(NA, 5))
+      
+      lower_asymp <- est_params_orig - 1.96 * se_asymp
+      upper_asymp <- est_params_orig + 1.96 * se_asymp
+      coverage_asymp[i, ] <- (true_params >= lower_asymp) & (true_params <= upper_asymp)
+      
+      # Step D: Bootstrap CI
+      boot_ests <- matrix(NA, nrow = n_boot, ncol = 5)
+      for (b in 1:n_boot) {
+        idx <- sample(1:n, n, replace = TRUE)
+        x_boot <- x_sim[idx]; y_boot <- y_sim[idx]
+        fit_boot <- tryCatch({
+          optim(par = fit$par, fn = nll_func, x = x_boot, y = y_boot, method = "BFGS")
+        }, error = function(e) NULL)
+        if (!is.null(fit_boot)) {
+          p <- fit_boot$par
+          boot_ests[b, ] <- c(p[1], p[2], exp(p[3]), exp(p[4]), exp(p[5]))
+        }
+      }
+      
+      if (sum(!is.na(boot_ests[,1])) > 10) {
+        quantiles <- apply(boot_ests, 2, quantile, probs = c(0.025, 0.975), na.rm = TRUE)
+        coverage_boot[i, ] <- (true_params >= quantiles[1, ]) & (true_params <= quantiles[2, ])
+      } else {
+        coverage_boot[i, ] <- NA
+      }
+      
+      setTxtProgressBar(pb, i)
+    } # end sim loop
+    close(pb)
+    
+    results_list[[paste0("n_", n)]] <- list(
+      mle = mle_matrix, cov_asymp = coverage_asymp, cov_boot = coverage_boot
+    )
+  } # end n loop
+  
+  # --- 每個 Setting 跑完馬上印報表 (以免當機全沒了) ---
+  cat(sprintf("\n--- Report for Setting %s ---\n", setting_id))
+  param_names <- c("Theta", "Mu", "Sigma", "Alpha", "Beta")
+  
+  for (n in sample_sizes) {
+    res <- results_list[[paste0("n_", n)]]
+    mle <- na.omit(res$mle)
+    cov_a <- na.omit(res$cov_asymp)
+    cov_b <- na.omit(res$cov_boot)
+    
+    bias <- colMeans(mle) - true_params
+    rmse <- sqrt(colMeans((mle - matrix(rep(true_params, nrow(mle)), nrow=nrow(mle), byrow=TRUE))^2))
+    cp_asymp <- colMeans(cov_a)
+    cp_boot  <- colMeans(cov_b)
+    
+    cat(sprintf("\n Sample Size: %d\n", n))
+    print(data.frame(Param=param_names, True=true_params, Bias=round(bias,4), RMSE=round(rmse,4), CP_A=round(cp_asymp,3), CP_B=round(cp_boot,3)))
+  }
+  
+  # 存入總表
+  all_results[[setting_id]] <- results_list
+  
+} # end setting loop
+
+cat("\nAll settings completed!\n")
